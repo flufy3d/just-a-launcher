@@ -124,19 +124,22 @@ class MainActivity : Activity() {
     private fun load() {
         endMove() // 移動中裝了或移除 app：先存目前的順序再重排
         val pm = packageManager
-        val query = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LEANBACK_LAUNCHER)
-        val apps = pm.queryIntentActivities(query, 0)
-            .filter { it.activityInfo.packageName != packageName }
-            .map { ri ->
-                val component = ComponentName(ri.activityInfo.packageName, ri.activityInfo.name)
-                val banner = ri.activityInfo.loadBanner(pm)
-                val launch = Intent(Intent.ACTION_MAIN)
-                    .addCategory(Intent.CATEGORY_LEANBACK_LAUNCHER)
-                    .setComponent(component)
-                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED)
-                Tile(component.flattenToShortString(), ri.loadLabel(pm).toString(), banner ?: ri.loadIcon(pm), banner != null, launch)
-            }
-            .sortedBy { it.label.lowercase() }
+        // 先列 TV app（LEANBACK_LAUNCHER），再補只有一般 LAUNCHER 入口的 app（非 Android TV 系統的內建設定、國內 TV app 常見）
+        // 同一個套件兩種入口都有時只留 TV 那個
+        val seen = HashSet<String>()
+        val apps = listOf(Intent.CATEGORY_LEANBACK_LAUNCHER, Intent.CATEGORY_LAUNCHER).flatMap { category ->
+            pm.queryIntentActivities(Intent(Intent.ACTION_MAIN).addCategory(category), 0)
+                .filter { it.activityInfo.packageName != packageName && seen.add(it.activityInfo.packageName) }
+                .map { ri ->
+                    val component = ComponentName(ri.activityInfo.packageName, ri.activityInfo.name)
+                    val banner = ri.activityInfo.loadBanner(pm)
+                    val launch = Intent(Intent.ACTION_MAIN)
+                        .addCategory(category)
+                        .setComponent(component)
+                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED)
+                    Tile(component.flattenToShortString(), ri.loadLabel(pm).toString(), banner ?: ri.loadIcon(pm), banner != null, launch)
+                }
+        }.sortedBy { it.label.lowercase() }
 
         // Google TV 內建的輸入端選單（inputplayer）。沒有這個 app 的裝置就不顯示。
         // 用 PNG banner 而不是文字：畫面上只要出現任何文字，字型、排版庫、字元貼圖快取就要 ~8MB
