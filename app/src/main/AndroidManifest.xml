@@ -32,7 +32,8 @@
             android:stateNotNeeded="true"
             android:excludeFromRecents="true"
             android:configChanges="keyboard|keyboardHidden|orientation|screenSize|uiMode|locale|layoutDirection">
-            <intent-filter>
+            <!-- 小米盒子桌面的 HOME 宣告 priority=100，系統會直接選它、無視預設首頁設定；這裡要比它高 -->
+            <intent-filter android:priority="1000">
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.HOME" />
                 <category android:name="android.intent.category.DEFAULT" />

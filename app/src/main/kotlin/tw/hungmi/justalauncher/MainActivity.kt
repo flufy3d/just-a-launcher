@@ -6,6 +6,7 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.content.pm.PackageManager
 import android.graphics.drawable.Drawable
 import android.os.Build
 import android.os.Bundle
@@ -22,6 +23,17 @@ import android.widget.Toast
 private const val ACTION_VIEW_INPUTS = "com.android.tv.action.VIEW_INPUTS"
 private const val KEY_ORDER = "order"
 private const val KEY_INPUTS = "inputs"
+
+// 小米盒子設定的 LAUNCHER 入口只是跳板，要小米桌面在前景才會彈出設定面板；
+// 換掉小米桌面後點它沒反應。改成直接列出能單獨開的設定頁（沒裝小米設定的裝置不會出現）。
+// 通用設定、圖像與聲音在 manifest 有宣告但 APK 裡沒有 class，只能從小米桌面的設定面板進
+private const val MI_SETTINGS = "com.xiaomi.mitv.settings"
+private val MI_SETTINGS_PAGES = listOf(
+    ".wifi.MitvWifiActivity" to "网络",
+    ".bluetooth.MitvBluetoothActivity" to "外设与蓝牙",
+    ".entry.SecurityActivity" to "帐号与安全",
+    ".entry.AboutActivity" to "关于",
+)
 
 class Tile(val key: String, val label: String, val image: Drawable?, val isBanner: Boolean, val intent: Intent)
 
@@ -129,6 +141,8 @@ class MainActivity : Activity() {
         val seen = HashSet<String>()
         val apps = listOf(Intent.CATEGORY_LEANBACK_LAUNCHER, Intent.CATEGORY_LAUNCHER).flatMap { category ->
             pm.queryIntentActivities(Intent(Intent.ACTION_MAIN).addCategory(category), 0)
+                // 入口要求我們沒有的權限（例如小米桌面的 signature 權限 HOME_STATE）就不列，點了也開不起來
+                .filter { ri -> ri.activityInfo.permission.let { it == null || pm.checkPermission(it, packageName) == PackageManager.PERMISSION_GRANTED } }
                 .filter { it.activityInfo.packageName != packageName && seen.add(it.activityInfo.packageName) }
                 .map { ri ->
                     val component = ComponentName(ri.activityInfo.packageName, ri.activityInfo.name)
@@ -139,6 +153,8 @@ class MainActivity : Activity() {
                         .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED)
                     Tile(component.flattenToShortString(), ri.loadLabel(pm).toString(), banner ?: ri.loadIcon(pm), banner != null, launch)
                 }
+        }.flatMap { tile ->
+            if (tile.intent.component?.packageName != MI_SETTINGS) listOf(tile) else miSettingsTiles(tile.image)
         }.sortedBy { it.label.lowercase() }
 
         // Google TV 內建的輸入端選單（inputplayer）。沒有這個 app 的裝置就不顯示。
@@ -152,6 +168,17 @@ class MainActivity : Activity() {
         val rank = saved.withIndex().associate { (i, key) -> key to i }
         adapter.items = (apps + listOfNotNull(inputsTile)).sortedBy { rank[it.key] ?: Int.MAX_VALUE }
         adapter.notifyDataSetChanged()
+    }
+
+    private fun miSettingsTiles(icon: Drawable?): List<Tile> = MI_SETTINGS_PAGES.mapNotNull { (activity, label) ->
+        val component = ComponentName(MI_SETTINGS, MI_SETTINGS + activity)
+        try {
+            packageManager.getActivityInfo(component, 0)
+        } catch (e: Exception) { // 這台沒有這一頁
+            return@mapNotNull null
+        }
+        val intent = Intent().setComponent(component).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        Tile(component.flattenToShortString(), label, icon, false, intent)
     }
 
     private fun launch(tile: Tile) {
